@@ -1,6 +1,6 @@
 # model practice
 
-> Practice makes perfict.
+> Practice makes perfect.
 
 There are three essential skills for a coder in deep learning:
 

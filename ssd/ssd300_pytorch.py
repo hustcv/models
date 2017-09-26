@@ -176,8 +176,7 @@ class SSD300(nn.Module):
     def _init_weight(self):
         def weight_init(m):
             if isinstance(m, nn.Conv2d):
-                #init.xavier_uniform(m.weight.data)
-                m.weight.data.zero_()
+                init.xavier_uniform(m.weight.data)
                 if m.bias is not None:
                     m.bias.data.zero_()
             elif isinstance(m, nn.BatchNorm2d):
