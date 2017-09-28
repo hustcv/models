@@ -6,7 +6,7 @@ File: dsod300_pytorch.py
 Author: duino
 Email: 472365351duino@gmail.com
 Github: github.com/duinodu
-Description: 
+Description: model definition of DSOD300 
 """
 
 import torch
@@ -122,7 +122,7 @@ class DSOD300(nn.Module):
                 'non-pretrain': block_conifg = (6,8,8,8)
 
         Returns: 
-            self.features
+            layers (nn.Sequential)
         """
         in_channels = 3
 
