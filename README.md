@@ -13,12 +13,12 @@ This repo provides an answer to the second question. We define lots of models an
 
 ## model list
 **object detection**
-- [ ] SSD [paper](http://arxiv.org/pdf/1512.02325.pdf)
+- [x] SSD [paper](http://arxiv.org/pdf/1512.02325.pdf)
 - [ ] Faster RCNN [paper](https://arxiv.org/pdf/1506.01497.pdf)
 - [ ] RON [paper](https://arxiv.org/pdf/1707.01691.pdf)
-- [ ] DSOD [paper](https://arxiv.org/pdf/1708.01241.pdf)
+- [x] DSOD [paper](https://arxiv.org/pdf/1708.01241.pdf)
 - [ ] RetinaNet [paper](https://arxiv.org/pdf/1708.02002.pdf)
 - [ ] DPN [paper](https://arxiv.org/pdf/1707.01629.pdf)
 
 **text detection**
-- [ ] EAST [paper](https://arxiv.org/pdf/1704.03155v2.pdf)
+- [x] EAST [paper](https://arxiv.org/pdf/1704.03155v2.pdf)
