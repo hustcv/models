@@ -90,7 +90,7 @@ class Hourglass(nn.Module):
 
     def _make_left(self, numIn, numOut):
         layers = []
-        layers.append(nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=False))
+        layers.append(nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True))
         layers.append(Residual(numIn, 256))
         layers.append(Residual(256, 256))
         layers.append(Residual(256, numOut))
@@ -103,25 +103,33 @@ class Hourglass(nn.Module):
         layers.append(nn.Upsample(scale_factor=2))
         return nn.Sequential(*layers)
 
+    def element_add(self, x, elem):
+        dst_h = x.size(-2) 
+        dst_w = x.size(-1)
+        if dst_h > elem.size(-2):
+            dst_h = elem.size(-2)
+        if dst_w > elem.size(-1):
+            dst_w = elem.size(-1)
+        elif x.size(-1) < elem.size(-1) or x.size(-2) < elem.size(-1):
+            raise NotImplementedError
+        return x[:,:,:dst_h, :dst_w] + elem
+
     def forward(self, x):
-        h1 = self.hat1(x)
-        x = self.left1(x)
-        h2 = self.hat2(x)
-        x = self.left2(x)
-        h3 = self.hat3(x)
-        x = self.left3(x)
-        h4 = self.hat4(x)
-        x = self.left4(x)
+        h1 = self.hat1(x) # 75
+        x = self.left1(x) # 75 -> 38 
+        h2 = self.hat2(x) # 38
+        x = self.left2(x) # 38 -> 19
+        h3 = self.hat3(x) # 19
+        x = self.left3(x) # 19 -> 10
+        h4 = self.hat4(x) # 10
+        x = self.left4(x) # 10 -> 5
 
         x = self.middle(x)
 
-        import ipdb
-        ipdb.set_trace()
-
-        x = self.right4(x) + h4
-        x = self.right3(x) + h3
-        x = self.right2(x) + h2
-        x = self.right1(x) + h1
+        x = self.element_add(self.right4(x), h4) 
+        x = self.element_add(self.right3(x), h3) 
+        x = self.element_add(self.right2(x), h2) 
+        x = self.element_add(self.right1(x), h1) 
         return x
 
 
@@ -167,17 +175,16 @@ class SHN(nn.Module):
         return nn.Sequential(*layers)
     
     def forward(self, x):
-
-        x = self.conv1(x)
+        x = self.conv1(x) # 300 -> 150
         x = self.bn1(x)
         x = self.relu(x)
         x = self.res1(x)
-        p1 = self.maxpool(x)
-        x = self.res2_1(x)
+        p1 = self.maxpool(x) # 150 -> 75
+        x = self.res2_1(p1)
         x = self.res2_2(x)
         x = self.res2_3(x)
 
-        x = self.hg1(x)
+        x = self.hg1(x) # 150
         x = self.linear1(x)
         pred1 = self.predict1(x)
 
@@ -190,15 +197,14 @@ class SHN(nn.Module):
         
         return pred1, pred2
 
-
     def init_weight(self, weight_file=None):
         pass
 
 if __name__ == "__main__":
     from torch.autograd import Variable
-    net = SHN(14)
+    net = SHN(2)
 
-    x = Variable(torch.randn(1,3,300,300))
+    x = Variable(torch.randn(1,3,1000,800))
     pred1, pred2 = net(x)
     print(pred1.size())
     print(pred2.size())
