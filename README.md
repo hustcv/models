@@ -23,5 +23,5 @@ This repo provides an answer to the second question. We define lots of models an
 **text detection**
 - [x] EAST [paper](https://arxiv.org/pdf/1704.03155v2.pdf)
 
-**human pose
+**human pose**
 - [x] Stacked Hourglass Network [paper](https://arxiv.org/pdf/1603.06937.pdf)
