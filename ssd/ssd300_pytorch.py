@@ -14,7 +14,7 @@ import os, glob
 
 class SSD300(nn.Module):
 
-    def __init__(self, num_classes, phase, pretrain=True):
+    def __init__(self, num_classes, phase, pretrain=False):
         super(SSD300, self).__init__()
         self.num_classes = num_classes
         self.phase = phase
@@ -44,8 +44,6 @@ class SSD300(nn.Module):
                     layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
                 elif v == 'C':
                     layers += [nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)]
-                elif v == 'M1':
-                    layers += [nn.MaxPool2d(kernel_size=3, stride=1, padding=1)]
                 else:
                     conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
                     if batch_norm:
@@ -53,14 +51,19 @@ class SSD300(nn.Module):
                     else:
                         layers += [conv2d, nn.ReLU(inplace=True)]
                     in_channels = v
+            pool5 = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
+            conv6 = nn.Conv2d(512, 1024, kernel_size=3, padding=6, dilation=6)
+            conv7 = nn.Conv2d(1024, 1024, kernel_size=1)
+            layers += [pool5, conv6, nn.ReLU(inplace=True),
+                              conv7, nn.ReLU(inplace=True)]
             return layers
 
         cfg = [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 
-               512, 512, 512, 'M', 512, 512, 512, 'M1']
+               512, 512, 512, 'M', 512, 512, 512]
         return nn.ModuleList(make_layers(cfg))
 
     def _extra_net(self):
-        """Extra layers in SSD300.
+        """Extra layers in SSD300, conv8,9,10,11
         Refer https://arxiv.org/pdf/1512.02325.pdf
 
         Returns:
@@ -68,15 +71,8 @@ class SSD300(nn.Module):
         """
         def make_layers(cfg, batch_norm=False):
             layers = []
-            in_channels = 512
-            conv6 = nn.Conv2d(in_channels, cfg[0], kernel_size=3, padding=6, dilation=6)
-            conv7 = nn.Conv2d(cfg[0], cfg[1], kernel_size=1)
-            layers += [conv6, nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=True)]
-
-            # conv8 - conv11
-            in_channels = cfg[1]
+            in_channels = 1024
             flag = False
-            cfg = cfg[2:]
 
             for i, v in enumerate(cfg):
                 if in_channels == 'S':
@@ -88,13 +84,12 @@ class SSD300(nn.Module):
                                      _kerner_size, stride=2, padding=1)
                 else:
                     conv = nn.Conv2d(in_channels, v, _kerner_size)
-                layers += [conv, nn.ReLU(inplace=True)]
+                layers += [conv]
                 in_channels = v
                 flag = not flag
             return layers
 
-        cfg = [1024, 1024, 
-               256, 'S', 512, 
+        cfg = [256, 'S', 512, 
                128, 'S', 256, 
                128, 256, 
                128, 256]
@@ -145,14 +140,14 @@ class SSD300(nn.Module):
             x = v(x)
             if k in pred_index:
                 sources.append(x) # without L2Norm
+        sources.append(x)
 
         # apply extra_net and cache source layer outputs
-        pred_index = [3, 7, 11, 15, 19]
+        pred_index = [1,3,5,7]
         for k, v in enumerate(self.extra_net):
             x = v(x) 
             if k in pred_index:
                 sources.append(x) 
-
         
         # apply predict_net to source layers
         for (x, l, c) in zip(sources, self.loc_pred, self.cls_pred):
@@ -191,13 +186,16 @@ class SSD300(nn.Module):
             weight_file: (str) pretrained weight file path
 
         """
-        print('fetching pretrained model...')
+        print('Fetching pretrained model...')
         vgg16 = models.vgg16(pretrained=True)
         model_file = os.path.join(os.environ['HOME'], '.torch/models', 'vgg16-*.pth')
         return glob.glob(model_file)[0]
 
     def _load_weight(self, weight_file=None):
-        """Load pretrained model
+        """Load pretrained model.
+        source: features.[0-28].[weight,bias], classifier.[0,3,6].[weight,bias]
+        target: base_net.[0-28].[weight,bias], base_net.[31,33].[weight,bias], -> (load pretrained model) 
+                extra_net.[0-7].[xx], loc_pred.[0-5].[xx], cls_pred.[0-5].[xx] -> (init)
 
         Kwargs:
             weight_file (str): *.pth file path
@@ -211,26 +209,47 @@ class SSD300(nn.Module):
 
         _, ext = os.path.splitext(weight_file)
 
+        def downsample(fc, layer):
+            """
+            downsample weight and bias in fc6,fc7 to conv6,conv7
+            w: [512,7,7,4096] -> [512,3,3,1024]     fc6
+               [4096, 4096] -> [1024, 1, 1, 1024]   fc7
+            b: [4096] -> [1024]
+            """
+            fc = fc.view(4, 1024, -1)[0] # [4096, 512*7*7] -> [4, 1024, -1][0], 
+            if fc.size(1) > 1: # weight
+                if layer == 'fc6':
+                    fc = fc.view(1024, 512, 7, 7)[:, :, 0::3, 0::3]
+                elif layer == 'fc7':
+                    fc = fc.view(4, 1024, 1024, 1, 1)[0]
+            else:
+                fc = fc[:,0]
+            return fc
+
         if ext == '.pkl' or '.pth':
-            saved_state_dict = torch.load(weight_file)
+            source_dict = torch.load(weight_file)
             # features -> base_net, remove
-            saved_state_dict2 = {}
-            for key in saved_state_dict.keys():
-                if 'features' in key:
-                    saved_state_dict2['base_net'+key[8:]] = saved_state_dict[key] 
-            saved_state_dict = saved_state_dict2 
+            target_dict = {}
+            for key in source_dict.keys():
+                if 'features' in key: # conv1-5
+                    target_dict['base_net'+key[8:]] = source_dict[key] 
+                elif 'classifier.0' in key: # conv6
+                    target_dict['base_net.31'+key[12:]] = downsample(source_dict[key], 'fc6')
+                elif 'classifier.3' in key: # conv7
+                    target_dict['base_net.33'+key[12:]] = downsample(source_dict[key], 'fc7')
+            source_dict = target_dict 
             # add
             for (key, value) in self.state_dict().items():
-                if key not in saved_state_dict.keys():
-                    saved_state_dict[key] = value
-            self.load_state_dict(saved_state_dict)
+                if key not in target_dict.keys():
+                    target_dict[key] = value
+            self.load_state_dict(target_dict)
             print('Loading weight successfully!')
         else:
             print('Sorry, only .pth and .pkl')
 
 if __name__ == "__main__":
     from torch.autograd import Variable
-    net = SSD300(21, 'train')
+    net = SSD300(21, 'train', pretrain=True)
 
     x = Variable(torch.randn(1,3,300,300))
     out = net(x)
